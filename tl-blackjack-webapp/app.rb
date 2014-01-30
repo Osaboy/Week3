@@ -10,33 +10,18 @@ configure :development do
   set :port, 3000
 end
 
-get '/index' do
+get '/' do
+  @title = "Home Page"
   haml :index
 end
 
 get '/about' do
+  @title = "About Us"
   haml :about
 end
 
 get '/contact' do
+  @title = "Contact Us"
   haml :contact
 end
 
-__END__
-
-@@layout
-%html
-  %body
-= yield
-
-@@index
-# because of the code under @@layout, I no longer need the %html and %body line
-#%html
-#  %body
-    %h1 Welcome
-
-@@about
-    %h1 About
-
-@@index
-    %h1 Contact
