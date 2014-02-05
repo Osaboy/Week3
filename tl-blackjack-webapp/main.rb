@@ -31,12 +31,20 @@ helpers do
 
 	  return total
 	end
-	
+
 end
 
 get '/' do
-
+	if session[:player_name]
+		# prograess to the game
+	else
+		redirect '/new_player'
+	end
 	erb :set_name
+end
+
+get '/new_player' do
+	erb :new_player
 end
 
 post '/set_name' do
