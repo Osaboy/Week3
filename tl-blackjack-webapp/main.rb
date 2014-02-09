@@ -5,6 +5,9 @@ require 'pry' # make sure that this is also included in the gem file
 # run the following in the nitrous.io console shotgun -o 0.0.0.0 -p 3000 main.rb
 set :sessions, true
 
+BLACKJACK_AMOUNT = 21
+DEALER_HIT_MIN = 17
+
 # Define the helper methods
 helpers do
   
@@ -26,7 +29,8 @@ helpers do
 
 	  # correct for Aces
 	  arr.select{|e| e == "A"}.count.times do
-	    total -= 10 if total > 21
+	    total -= 10 if total > BLACKJACK_AMOUNT
+
 	  end
 
 	  return total
@@ -55,20 +59,21 @@ helpers do
 
 	end
 
-	def did_player_win?()
+	def winner!(msg)
+		@success = "<strong>#{session[:player_name]} wins!</strong> #{msg}"
+		@show_hit_or_stay_buttons = false
+		@show_play_again_button = true
+	end
 
-		win_loose_draw = 0
+	def loser!(msg)
+		@error = "<strong>#{session[:player_name]} loses!</strong> #{msg}"
+		@show_hit_or_stay_buttons = false
+		@show_play_again_button = true
+	end
 
-		if calculate_total(session[:player_cards]) > calculate_total(session[:dealer_cards])
-			win_loose_draw = 1
-		elsif calculate_total(session[:player_cards]) < calculate_total(session[:dealer_cards])
-			win_loose_draw = 0
-		else
-			win_loose_draw = 2
-		end
-
-		return win_loose_draw
-
+	def tie!(msg)
+		@success = "<strong>It's a tie!</strong> #{msg}"
+		@show_play_again_button = true
 	end
 
 end
@@ -76,7 +81,8 @@ end
 # this will run before all the actions below
 before do 
 	@show_hit_or_stay_buttons = true
-	@show_dealer_card_buttons = false
+	@show_dealer_hit_button = false
+	@show_play_again_button = false
 end
 
 get '/' do
@@ -99,7 +105,7 @@ post '/new_player' do
   
   if params[:player_name].empty?
   	@error = "Name is required!"
-  	halt erb(:new_player)
+  	halt erb :new_player
   end
 
   session[:player_name] = params[:player_name] #param's from url parameters, name of input in erb file
@@ -110,6 +116,8 @@ end
 get '/game' do
 	
 	# Need to set up initial game values and render template
+
+	session[:turn] = session[:player_name]
 
 	# Create a deck and put it in session
 	suits = ['H', 'D', 'S', 'C']
@@ -124,9 +132,8 @@ get '/game' do
 	end
 
 	player_total = calculate_total(session[:player_cards])
-	if player_total == 21
-		@success = "Congratulations! #{session[:player_name]} hit blackjack!"
-		@show_hit_or_stay_buttons = false
+	if player_total == BLACKJACK_AMOUNT
+		winner!("Congratulations! #{session[:player_name]} hit blackjack!")
 	end
 
 	erb :game
@@ -139,12 +146,10 @@ post '/game/player/hit' do
 
 	player_total = calculate_total(session[:player_cards])
 
-	if player_total == 21
-		@success = "Congratulations! #{session[:player_name]} hit blackjack!"
-		@show_hit_or_stay_buttons = false
-	elsif player_total > 21
-		@error = "Sorry, it looks like #{session[:player_name]} busted"
-		@show_hit_or_stay_buttons = false
+	if player_total == BLACKJACK_AMOUNT
+		winner!("#{session[:player_name]} hit blackjack!")		
+	elsif player_total > BLACKJACK_AMOUNT
+		loser!("Sorry, it looks like #{session[:player_name]} busted at #{player_total}")
 	end
 
 	# render the template but do not redirect
@@ -156,71 +161,57 @@ post '/game/player/stay' do
 	
 	@success = "#{session[:player_name]} has chosen to stay."
 	@show_hit_or_stay_buttons = false
+	redirect '/game/dealer'
+end
+
+get '/game/dealer' do
 	
-	@success = "Dealers turn"
+	session[:turn] = "dealer"
+
+	@show_hit_or_stay_buttons = false
 
 	dealer_total = calculate_total(session[:dealer_cards])
 
-	if dealer_total == 21
-		@success = "Sorry the dealer hit blackjack!"
-		@show_hit_or_stay_buttons = false
-	elsif dealer_total < 17
-		@show_dealer_card_buttons = true
+	if dealer_total == BLACKJACK_AMOUNT
+		loser!("Sorry, the dealer hit blackjack!")
+	elsif dealer_total > BLACKJACK_AMOUNT
+		winner!("Congratulations, dealer busted at #{dealer_total}! You win!")
+	elsif dealer_total >= DEALER_HIT_MIN # 17, 18, 19, 20
+		# dealer stays
+		redirect '/game/compare'
 	else
-		
-		win_loose_draw = case did_player_win?()
-			when 0 then
-				@success ="Sorry dealer wins!" 
-			when 1 then
-				@success ="Congratulations #{session[:player_name]} wins!"
-			when 2 then 
-				@success ="Its a draw!"
-			end
+		# dealer hits
+		@show_dealer_hit_button = true
 	end
 
-	
 	erb :game
 
 end
 
-post '/game/dealer/hit' do
-	
+get '/game/compare' do
+
+	@show_hit_or_stay_buttons = false
+	player_total = calculate_total(session[:player_cards])
 	dealer_total = calculate_total(session[:dealer_cards])
 
-	if dealer_total == 21
-		@success = "Sorry the dealer hit blackjack!"
-		@show_hit_or_stay_buttons = false
+	if player_total < dealer_total
+			loser!("#{session[:player_name]} stayed at #{player_total}, and the dealer stayed at #{dealer_total}")
+	elsif player_total > dealer_total
+			winner!("#{session[:player_name]} stayed at #{player_total}, and the dealer stayed at #{dealer_total}")
+	else
+		tie!("Both #{session[:player_name]} and the dealer stayed at #{dealer_total}")
 	end
-	
-	while dealer_total < 17
-		
-		session[:dealer_cards] << session[:deck].pop
-		dealer_total = calculate_total(session[:dealer_cards])
-
-		if dealer_total == 21
-      @success = "Sorry the dealer hit blackjack!"
-      @show_dealer_card_buttons = false 
-    elsif dealer_total > 21
-      @success = "Congratulations! dealer busted! #{session[:player_name]} wins!"
-      @show_dealer_card_buttons = false
-    else
-    	# compare player_total to dealer_total
-
-			win_loose_draw = case did_player_win?()
-			when 0 then
-				@success ="Sorry dealer wins!" 
-			when 1 then
-				@success ="Congratulations #{session[:player_name]} wins!"
-			when 2 then 
-				@success ="Its a draw!"
-			end
-    end
-   
-		@show_hit_or_stay_buttons = false
-	end
-	
-	
 
 	erb :game
 
 end
+
+post '/game/dealer/hit' do	
+	session[:dealer_cards] << session[:deck].pop
+	redirect '/game/dealer'
+end
+
+get '/game_over' do
+	erb :game_over
+end
+
